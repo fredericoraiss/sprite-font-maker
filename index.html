@@ -1,0 +1,776 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sprite Font Maker — Godot 3.x</title>
+<style>
+  :root {
+    --bg: #14171a; --panel: #1c2024; --panel2: #23282d; --line: #2f363c;
+    --text: #e4e8ea; --muted: #8b969d; --accent: #2fd05a; --accent-d: #1b8f3a;
+    --warn: #f0b429; --err: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.4 "Segoe UI", system-ui, sans-serif; display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); }
+  #status { margin-left: auto; color: var(--muted); text-align: right; }
+  main { flex: 1; display: grid; grid-template-columns: 340px 1fr; min-height: 0; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; padding: 4px 14px 24px; }
+  aside h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 18px 0 8px; }
+  label.row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; }
+  label.row span.l { flex: 1; }
+  input[type=number], input[type=text], select, textarea {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 5px; padding: 5px 7px; font: inherit;
+  }
+  input[type=number] { width: 78px; }
+  select { max-width: 100%; }
+  textarea { width: 100%; font-family: Consolas, monospace; font-size: 13px; resize: vertical; letter-spacing: .08em; }
+  input[type=range] { width: 130px; accent-color: var(--accent); }
+  button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 5px; padding: 6px 11px; font: inherit; cursor: pointer;
+  }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent-d); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.primary:hover { background: var(--accent); color: #062b12; }
+  button:disabled { opacity: .45; cursor: default; }
+  .btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .hint { color: var(--muted); font-size: 12px; margin: 4px 0; }
+  .warn { color: var(--warn); font-size: 12px; margin: 6px 0; }
+  .err { color: var(--err); }
+  #drop { border: 1.5px dashed var(--line); border-radius: 8px; padding: 16px 10px; text-align: center; color: var(--muted); cursor: pointer; }
+  #drop.over { border-color: var(--accent); color: var(--text); }
+  #stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .tabs { display: flex; gap: 2px; padding: 8px 12px 0; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .tab { padding: 7px 14px; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; cursor: pointer; color: var(--muted); }
+  .tab.on { background: var(--bg); border-color: var(--line); color: var(--text); }
+  .pane { flex: 1; min-height: 0; overflow: auto; display: none; }
+  .pane.on { display: block; }
+  #sheetTools, #pvTools { display: flex; gap: 14px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  #sheetWrap { overflow: auto; position: absolute; inset: 0; top: 0; }
+  #paneSheet { position: relative; }
+  #paneSheetBody { position: absolute; inset: 42px 0 0 0; overflow: auto; }
+  #sheetCanvas { display: block; cursor: crosshair; }
+  #inspector { position: absolute; right: 14px; top: 54px; width: 230px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: none; box-shadow: 0 6px 20px #0008; }
+  #inspector h3 { margin: 0 0 6px; font-size: 13px; }
+  #panePreview { padding: 0; }
+  #pvText { width: calc(100% - 24px); margin: 10px 12px 0; height: 70px; font-family: inherit; letter-spacing: 0; font-size: 14px; }
+  #pvWrap { margin: 10px 12px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+  #pvCanvas { display: block; }
+  #metrics { padding: 4px 12px 16px; color: var(--muted); font-family: Consolas, monospace; font-size: 12px; white-space: pre-wrap; }
+  #empty { color: var(--muted); padding: 40px; text-align: center; }
+  .checker { background-color: #262b30; background-image: linear-gradient(45deg,#2d3339 25%,transparent 25%,transparent 75%,#2d3339 75%),linear-gradient(45deg,#2d3339 25%,transparent 25%,transparent 75%,#2d3339 75%); background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+  #atlasPreview { max-width: 100%; border: 1px solid var(--line); margin: 6px 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sprite Font Maker</h1>
+  <span class="sub">sheet de glifos → BitmapFont (.fnt + .png) para Godot 3.x</span>
+  <div id="status">Nenhuma sheet carregada</div>
+</header>
+
+<main>
+<aside>
+  <h2>1 · Sheet</h2>
+  <div id="drop">Arraste a sprite sheet aqui<br>ou clique para escolher (PNG / WebP)</div>
+  <input type="file" id="file" accept="image/*" hidden>
+  <label class="row"><span class="l">Limiar de alpha (ignora pixels mais fracos)</span><input type="number" id="thr" min="1" max="250" value="8"></label>
+
+  <h2>2 · Grade da sheet</h2>
+  <div class="hint">Detectada automaticamente. Os glifos podem ultrapassar a célula (G, Q, Ç…); só o passo da grade importa.</div>
+  <label class="row"><span class="l">Passo X / Y (px)</span><span><input type="number" id="px" step="0.5" min="8"> <input type="number" id="py" step="0.5" min="8"></span></label>
+  <label class="row"><span class="l">Origem X / Y (px)</span><span><input type="number" id="ox" step="0.5"> <input type="number" id="oy" step="0.5"></span></label>
+  <div class="btns"><button id="btnRegrid">Redetectar grade</button></div>
+
+  <h2>3 · Caracteres (ordem de leitura)</h2>
+  <label class="row"><span class="l">Modelo</span>
+    <select id="preset"></select></label>
+  <textarea id="order" rows="5" spellcheck="false"></textarea>
+  <div id="orderInfo" class="hint"></div>
+  <label class="row"><span class="l">Minúsculas usam os glifos maiúsculos</span><input type="checkbox" id="lower" checked></label>
+  <label class="row"><span class="l">Aliases (’ ‘ → ' · “ ” → " · – — → -)</span><input type="checkbox" id="aliases" checked></label>
+  <label class="row"><span class="l">Ignorar células vazias ao contar</span><input type="checkbox" id="seq"></label>
+  <div id="checks"></div>
+
+  <h2>4 · Espaçamento</h2>
+  <label class="row"><span class="l">Espaçamento entre letras (px)</span><input type="number" id="spacing" value="0" step="1"></label>
+  <label class="row"><span class="l">Kerning automático (encaixa os pares)</span><input type="checkbox" id="kern" checked></label>
+  <label class="row"><span class="l">Folga mínima entre letras (px)</span><input type="number" id="gap" value="1" step="1"></label>
+  <label class="row"><span class="l">Aperto máximo por par (px)</span><input type="number" id="maxTight" value="40" min="0"></label>
+  <label class="row"><span class="l">Ignorar kerning menor que (px)</span><input type="number" id="minKern" value="2" min="1"></label>
+  <label class="row"><span class="l">Permitir afastar pares sobrepostos</span><input type="checkbox" id="widen"></label>
+  <label class="row"><span class="l">Largura do espaço (0 = auto)</span><input type="number" id="space" value="0" min="0"></label>
+  <label class="row"><span class="l">Entrelinha extra (px)</span><input type="number" id="lineExtra" value="0" step="1"></label>
+
+  <h2>5 · Exportar</h2>
+  <label class="row"><span class="l">Nome da fonte</span><input type="text" id="name" value="MinhaFonte" style="width:150px"></label>
+  <label class="row"><span class="l">Margem entre glifos no atlas (px)</span><input type="number" id="pad" value="2" min="0" max="16"></label>
+  <div class="btns">
+    <button class="primary" id="btnZip" disabled>Baixar .zip (.fnt + .png)</button>
+    <button id="btnFnt" disabled>.fnt</button>
+    <button id="btnPng" disabled>.png</button>
+  </div>
+  <div class="hint">No Godot 3.x, coloque o .fnt e o .png na mesma pasta do projeto e use o .fnt como <i>Font</i> (ele é carregado como BitmapFont).</div>
+</aside>
+
+<section id="stage">
+  <div class="tabs">
+    <div class="tab on" data-tab="Sheet">Sheet e glifos</div>
+    <div class="tab" data-tab="Preview">Prévia do texto</div>
+    <div class="tab" data-tab="Atlas">Atlas gerado</div>
+  </div>
+
+  <div class="pane on" id="paneSheet">
+    <div id="sheetTools">
+      <label>Zoom <input type="range" id="zoom" min="20" max="300" value="50"> <span id="zoomVal">50%</span></label>
+      <label><input type="checkbox" id="showBoxes" checked> mostrar caixas</label>
+      <label><input type="checkbox" id="showLabels" checked> mostrar caracteres</label>
+      <span class="hint">Clique num glifo para ajustar caractere, avanço e posição vertical.</span>
+    </div>
+    <div id="paneSheetBody"><div id="empty">Carregue uma sprite sheet para começar.</div><canvas id="sheetCanvas" hidden></canvas></div>
+    <div id="inspector">
+      <h3 id="inspTitle">Glifo</h3>
+      <label class="row"><span class="l">Caractere</span><input type="text" id="inChar" maxlength="2" style="width:50px;text-align:center"></label>
+      <label class="row"><span class="l">Avanço extra (px)</span><input type="number" id="inAdv" value="0" step="1"></label>
+      <label class="row"><span class="l">Deslocar Y (px)</span><input type="number" id="inDy" value="0" step="1"></label>
+      <label class="row"><span class="l">Excluir da fonte</span><input type="checkbox" id="inSkip"></label>
+      <div id="inInfo" class="hint"></div>
+    </div>
+  </div>
+
+  <div class="pane" id="panePreview">
+    <textarea id="pvText">ÁGUA, AÇÃO E MÁQUINA!
+Olá, mundo? Você está aí — 100% pronto.
+"Aspas", (parênteses) & R$ 25,90</textarea>
+    <div id="pvTools">
+      <label>Escala <select id="pvScale"><option value="0.5" selected>0.5×</option><option value="1">1×</option><option value="2">2×</option></select></label>
+      <label><input type="checkbox" id="pvKern" checked> usar kerning</label>
+      <label><input type="checkbox" id="pvBoxes"> mostrar caixas dos glifos</label>
+      <label>Fundo <select id="pvBg"><option value="#23282d">escuro</option><option value="#ffffff">branco</option><option value="#7a5ea8">roxo</option><option value="checker">xadrez</option></select></label>
+    </div>
+    <div id="pvWrap"><canvas id="pvCanvas" width="10" height="10"></canvas></div>
+    <div id="pvMissing" class="warn" style="margin:0 12px"></div>
+    <div id="metrics"></div>
+  </div>
+
+  <div class="pane" id="paneAtlas">
+    <div id="atlasInfo" class="hint" style="padding:10px 12px"></div>
+    <div class="checker" style="display:inline-block;margin:0 12px"><canvas id="atlasView"></canvas></div>
+  </div>
+</section>
+</main>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+/* ------------------------------------------------------------------ presets */
+const PRESETS = {
+  sheet90: { name: 'Latim PT/ES/FR — padrão da sua sheet (96)',
+    chars: ['ABCDEFGHIJK','LMNOPQRSTUV','WXYZ0123456','789.,;:?!-_','~#"\'&()[]|`','\\/@°+=*$£€<','>%ÁÂÀÅÃÄÆÉÊ','ÈËÍÎÌÏÓÔÒÕÖ','ÚÛÙÜÇÑÝ¿'].join('') },
+  az09: { name: 'A–Z + 0–9 (36)', chars: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' },
+  ascii: { name: 'ASCII 33–126 (94)', chars: '!"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~' },
+  custom: { name: 'Personalizado', chars: '' },
+};
+const ALIASES = { "'": ['’', '‘'], '"': ['“', '”'], '-': ['–', '—'] };
+const FLAT_BASE = 'ABDEHIKLMNPRTUVWXZ0123456789';
+
+/* -------------------------------------------------------------------- state */
+const S = {
+  img: null, W: 0, H: 0, rgba: null, alpha: null, lab: null, comps: [], name: 'sheet',
+  grid: null, glyphs: [], over: {}, sel: null, font: null, zoom: 0.5, bgKeyed: false,
+};
+
+/* --------------------------------------------------------------- load image */
+async function loadBlob(blob, name) {
+  const bmp = await createImageBitmap(blob);
+  const cv = document.createElement('canvas');
+  cv.width = bmp.width; cv.height = bmp.height;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(bmp, 0, 0);
+  const data = ctx.getImageData(0, 0, cv.width, cv.height);
+  S.W = cv.width; S.H = cv.height; S.rgba = data.data; S.name = (name || 'sheet').replace(/\.[^.]+$/, '');
+  S.bgKeyed = keyOpaqueBackground(S.rgba, S.W, S.H);
+  S.alpha = new Uint8Array(S.W * S.H);
+  for (let i = 0; i < S.alpha.length; i++) S.alpha[i] = S.rgba[i * 4 + 3];
+  S.presetPicked = false; S.over = {}; S.sel = null; $('#inspector').style.display = 'none';
+  const nm = $('#name');
+  if (nm.dataset.touched !== '1') nm.value = S.name.replace(/[^\w\-]+/g, '_') || 'MinhaFonte';
+  // renderiza a sheet "limpa" (com o fundo removido, se for o caso) para exibir
+  S.img = document.createElement('canvas'); S.img.width = S.W; S.img.height = S.H;
+  S.img.getContext('2d').putImageData(data, 0, 0);
+  analyze(true);
+}
+
+// Se a imagem não tem transparência (4 cantos opacos e iguais), remove a cor de fundo.
+function keyOpaqueBackground(px, W, H) {
+  const at = (x, y) => (y * W + x) * 4;
+  const cs = [at(0, 0), at(W - 1, 0), at(0, H - 1), at(W - 1, H - 1)];
+  if (!cs.every(i => px[i + 3] === 255)) return false;
+  const [r, g, b] = [px[cs[0]], px[cs[0] + 1], px[cs[0] + 2]];
+  if (!cs.every(i => Math.abs(px[i] - r) + Math.abs(px[i + 1] - g) + Math.abs(px[i + 2] - b) < 12)) return false;
+  for (let i = 0; i < px.length; i += 4) {
+    if (Math.abs(px[i] - r) + Math.abs(px[i + 1] - g) + Math.abs(px[i + 2] - b) < 36) px[i + 3] = 0;
+  }
+  return true;
+}
+
+/* -------------------------------------------------- componentes conectados */
+function labelComponents() {
+  const { W, H, alpha } = S, thr = +$('#thr').value || 8;
+  const lab = new Int32Array(W * H), stack = new Int32Array(W * H), comps = [null];
+  let n = 0;
+  for (let i = 0; i < W * H; i++) {
+    if (lab[i] || alpha[i] < thr) continue;
+    n++; let sp = 0; stack[sp++] = i; lab[i] = n;
+    let x0 = W, x1 = -1, y0 = H, y1 = -1, area = 0, sx = 0, sy = 0;
+    while (sp) {
+      const p = stack[--sp], x = p % W, y = (p - x) / W;
+      area++; sx += x; sy += y;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      for (let dy = -1; dy <= 1; dy++) {
+        const ny = y + dy; if (ny < 0 || ny >= H) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx; if (nx < 0 || nx >= W) continue;
+          const q = ny * W + nx;
+          if (!lab[q] && alpha[q] >= thr) { lab[q] = n; stack[sp++] = q; }
+        }
+      }
+    }
+    comps.push({ id: n, x0, x1: x1 + 1, y0, y1: y1 + 1, area, cx: sx / area + 0.5, cy: sy / area + 0.5, dead: area < 6 });
+  }
+  S.lab = lab; S.comps = comps;
+}
+
+/* ------------------------------------------------------- detecção da grade */
+// Procura o passo P para o qual os centros dos componentes, módulo P, deixam a maior
+// "folga" circular. Essa folga é a divisa entre células.
+function maxGap(vals, P, buf) {
+  for (let i = 0; i < vals.length; i++) buf[i] = ((vals[i] % P) + P) % P;
+  buf.sort();
+  let best = -1, at = 0;
+  for (let i = 0; i < buf.length; i++) {
+    const nx = i + 1 < buf.length ? buf[i + 1] : buf[0] + P;
+    const g = nx - buf[i];
+    if (g > best) { best = g; at = (buf[i] + g / 2) % P; }
+  }
+  return { gap: best, at };
+}
+function detectAxis(vals, fallbackPitch, hintP) {
+  const lo = Math.min(...vals), hi = Math.max(...vals), extent = hi - lo;
+  const maxP = Math.min(700, extent * 0.6);
+  if (vals.length < 3 || maxP < 40) return { P: fallbackPitch, at: lo - fallbackPitch / 2 };
+  const buf = new Float64Array(vals.length);
+  // melhor passo = maior fração do passo que fica vazia (evita escolher múltiplos do passo real)
+  let P0 = 40, bestScore = -1;
+  for (let P = 40; P <= maxP; P += 0.5) { const s = maxGap(vals, P, buf).gap / P; if (s > bestScore) { bestScore = s; P0 = P; } }
+  // refina no centro do platô de folga máxima
+  let gMax = -1; const cand = [];
+  for (let P = Math.max(40, P0 - 3); P <= P0 + 3; P += 0.1) { const g = maxGap(vals, P, buf).gap; cand.push([P, g]); if (g > gMax) gMax = g; }
+  const plateau = cand.filter(c => c[1] >= gMax - 1).map(c => c[0]);
+  let P = (plateau[0] + plateau[plateau.length - 1]) / 2;
+  // se a grade é quadrada, o passo do outro eixo costuma servir (o eixo Y tem um platô largo)
+  if (hintP && Math.abs(hintP - P) > 0.3) {
+    const gh = maxGap(vals, hintP, buf).gap;
+    if (gh / hintP >= 0.85 * (maxGap(vals, P, buf).gap / P)) P = hintP;
+  }
+  return { P, at: maxGap(vals, P, buf).at };
+}
+function autoGrid() {
+  const cs = S.comps.filter(c => c && !c.dead && c.area >= 30);
+  const med = a => a.slice().sort((x, y) => x - y)[a.length >> 1] || 100;
+  const fbW = med(cs.map(c => c.x1 - c.x0)) * 1.3, fbH = med(cs.map(c => c.y1 - c.y0)) * 1.3;
+  const vx = cs.map(c => c.cx), vy = cs.map(c => c.cy);
+  const ax = refineAxis(vx, detectAxis(vx, fbW)), ay = refineAxis(vy, detectAxis(vy, fbH, ax.P));
+  return { px: ax.P, py: ay.P, ox: ax.at, oy: ay.at };
+}
+// Ajuste fino: regressão linear do centro dos glifos contra o índice da célula dá o passo real
+// (um erro de 1px no passo já desalinha a linha de base em ~10px na última linha).
+function refineAxis(vals, ax) {
+  let { P, at } = ax;
+  for (let it = 0; it < 3; it++) {
+    const idx = vals.map(v => Math.floor((v - at) / P)), mn = Math.min(...idx);
+    if (new Set(idx).size < 3) break;
+    const k = idx.map(i => i - mn), n = k.length, mk = k.reduce((a, b) => a + b, 0) / n, mv = vals.reduce((a, b) => a + b, 0) / n;
+    let num = 0, den = 0;
+    for (let i = 0; i < n; i++) { num += (k[i] - mk) * (vals[i] - mv); den += (k[i] - mk) ** 2; }
+    if (!den) break;
+    P = num / den; at = maxGap(vals, P, new Float64Array(n)).at;
+  }
+  return { P, at };
+}
+
+/* ----------------------------------------- separação de glifos e atribuição */
+function colProfile(c, axis) {
+  const { W, lab } = S, n = axis === 'x' ? c.x1 - c.x0 : c.y1 - c.y0, prof = new Int32Array(n);
+  for (let y = c.y0; y < c.y1; y++) for (let x = c.x0; x < c.x1; x++) {
+    if (lab[y * W + x] === c.id) prof[axis === 'x' ? x - c.x0 : y - c.y0]++;
+  }
+  return prof;
+}
+// Se um componente cobre mais de uma célula (glifos colados, ex.: Æ + É), corta no vale
+// de tinta mais próximo da divisa da grade.
+function cutPositions(c, axis, pitch, origin) {
+  const lo = axis === 'x' ? c.x0 : c.y0, hi = axis === 'x' ? c.x1 : c.y1;
+  const prof = colProfile(c, axis), cuts = [];
+  for (let k = Math.ceil((lo - origin) / pitch); origin + k * pitch < hi; k++) {
+    const b = origin + k * pitch;
+    if (b - lo < 0.15 * pitch || hi - b < 0.15 * pitch) continue;
+    let bestX = -1, bestV = Infinity;
+    const from = Math.max(lo + 1, Math.floor(b - 0.2 * pitch)), to = Math.min(hi - 1, Math.ceil(b + 0.2 * pitch));
+    for (let x = from; x <= to; x++) {
+      const v = prof[x - lo];
+      if (v < bestV || (v === bestV && Math.abs(x - b) < Math.abs(bestX - b))) { bestV = v; bestX = x; }
+    }
+    if (bestX > 0) cuts.push(bestX);
+  }
+  return cuts;
+}
+function rangesFrom(cuts) {
+  const r = []; let a = -Infinity;
+  for (const c of cuts) { r.push([a, c]); a = c; }
+  r.push([a, Infinity]); return r;
+}
+
+function buildGlyphs() {
+  const { W, lab, comps } = S, { px, py, ox, oy } = S.grid;
+  const pieces = [], compPieces = new Array(comps.length);
+  for (const c of comps) {
+    if (!c || c.dead) continue;
+    const xr = (c.x1 - c.x0 > 1.12 * px) ? rangesFrom(cutPositions(c, 'x', px, ox)) : [[-Infinity, Infinity]];
+    const yr = (c.y1 - c.y0 > 1.25 * py) ? rangesFrom(cutPositions(c, 'y', py, oy)) : [[-Infinity, Infinity]];
+    const list = [];
+    if (xr.length === 1 && yr.length === 1) {
+      list.push({ comp: c.id, rx: xr[0], ry: yr[0], x0: c.x0, x1: c.x1, y0: c.y0, y1: c.y1, cx: c.cx, cy: c.cy, area: c.area, glyph: -1 });
+    } else {
+      for (const rx of xr) for (const ry of yr) {
+        let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1, area = 0, sx = 0, sy = 0;
+        for (let y = Math.max(c.y0, ry[0] === -Infinity ? c.y0 : ry[0]); y < Math.min(c.y1, ry[1]); y++)
+          for (let x = Math.max(c.x0, rx[0] === -Infinity ? c.x0 : rx[0]); x < Math.min(c.x1, rx[1]); x++) {
+            if (lab[y * W + x] !== c.id) continue;
+            area++; sx += x; sy += y; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+          }
+        if (area >= 6) list.push({ comp: c.id, rx, ry, x0, x1: x1 + 1, y0, y1: y1 + 1, cx: sx / area + .5, cy: sy / area + .5, area, glyph: -1 });
+      }
+    }
+    compPieces[c.id] = list; pieces.push(...list);
+  }
+  // célula de cada peça
+  let minC = Infinity, minR = Infinity, maxC = -Infinity, maxR = -Infinity;
+  for (const p of pieces) {
+    p.col = Math.floor((p.cx - ox) / px); p.row = Math.floor((p.cy - oy) / py);
+    minC = Math.min(minC, p.col); maxC = Math.max(maxC, p.col); minR = Math.min(minR, p.row); maxR = Math.max(maxR, p.row);
+  }
+  const cols = maxC - minC + 1, rows = maxR - minR + 1;
+  const cells = new Map();
+  for (const p of pieces) {
+    p.col -= minC; p.row -= minR;
+    const k = p.row * cols + p.col;
+    if (!cells.has(k)) cells.set(k, []);
+    cells.get(k).push(p);
+  }
+  S.grid.cols = cols; S.grid.rows = rows;
+  S.grid.originX = ox + minC * px; S.grid.originY = oy + minR * py;
+  S.compPieces = compPieces;
+  const glyphs = [];
+  [...cells.keys()].sort((a, b) => a - b).forEach((k, i) => {
+    const ps = cells.get(k);
+    const g = { idx: i, cell: k, col: k % cols, row: Math.floor(k / cols), pieces: ps,
+      x0: Math.min(...ps.map(p => p.x0)), y0: Math.min(...ps.map(p => p.y0)),
+      x1: Math.max(...ps.map(p => p.x1)), y1: Math.max(...ps.map(p => p.y1)) };
+    g.w = g.x1 - g.x0; g.h = g.y1 - g.y0;
+    ps.forEach(p => p.glyph = i);
+    glyphs.push(g);
+  });
+  S.glyphs = glyphs;
+  extractGlyphs();
+}
+
+function pieceOf(id, x, y) {
+  const arr = S.compPieces[id]; if (!arr) return null;
+  if (arr.length === 1) return arr[0];
+  for (const p of arr) if (x >= p.rx[0] && x < p.rx[1] && y >= p.ry[0] && y < p.ry[1]) return p;
+  return null;
+}
+// Copia só os pixels que pertencem a cada glifo (evita arrastar vizinhos colados) e mede os perfis.
+function extractGlyphs() {
+  const { W, lab, rgba } = S;
+  for (const g of S.glyphs) {
+    const data = new ImageData(g.w, g.h), d = data.data;
+    for (let y = g.y0; y < g.y1; y++) for (let x = g.x0; x < g.x1; x++) {
+      const id = lab[y * W + x]; if (!id) continue;
+      const p = pieceOf(id, x, y); if (!p || p.glyph !== g.idx) continue;
+      const s = (y * W + x) * 4, t = ((y - g.y0) * g.w + (x - g.x0)) * 4;
+      d[t] = rgba[s]; d[t + 1] = rgba[s + 1]; d[t + 2] = rgba[s + 2]; d[t + 3] = rgba[s + 3];
+    }
+    g.data = data;
+    g.L = new Int16Array(g.h).fill(-1); g.R = new Int16Array(g.h).fill(-1);
+    for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
+      if (d[(y * g.w + x) * 4 + 3] < 32) continue;
+      if (g.L[y] < 0) g.L[y] = x;
+      g.R[y] = x + 1;
+    }
+  }
+}
+
+/* ------------------------------------------------------ mapeamento de chars */
+const orderChars = () => [...$('#order').value.replace(/\s+/g, '')];
+
+function assignChars() {
+  const order = orderChars(), seqMode = $('#seq').checked;
+  S.glyphs.forEach((g, i) => {
+    const pos = seqMode ? i : g.cell, ov = S.over[g.cell] || {};
+    g.char = ov.char || order[pos] || null;
+    g.advExtra = ov.adv || 0; g.dy = ov.dy || 0; g.skip = !!ov.skip;
+  });
+  const used = new Set();
+  const explicit = new Set(S.glyphs.filter(g => g.char && !g.skip).map(g => g.char));
+  for (const g of S.glyphs) {
+    g.ids = [];
+    if (!g.char || g.skip) continue;
+    const add = ch => { const cp = ch.codePointAt(0); if (!used.has(cp)) { used.add(cp); g.ids.push(cp); } };
+    add(g.char);
+    if ($('#lower').checked) { const lc = g.char.toLowerCase(); if (lc !== g.char && lc.length === [...lc].length && !explicit.has(lc)) add(lc); }
+    if ($('#aliases').checked && ALIASES[g.char]) ALIASES[g.char].forEach(a => { if (!explicit.has(a)) add(a); });
+  }
+  const info = [];
+  const nonEmptyCells = S.glyphs.length, total = S.grid.cols * S.grid.rows;
+  info.push(`${nonEmptyCells} glifos detectados (${S.grid.cols}×${S.grid.rows} células) · ${order.length} caracteres na ordem`);
+  if (nonEmptyCells !== order.length && !seqMode && nonEmptyCells < total) info.push(`${total - nonEmptyCells} célula(s) vazia(s) na grade`);
+  $('#orderInfo').textContent = info.join(' · ');
+  $('#checks').innerHTML = (nonEmptyCells > order.length)
+    ? `<div class="warn">⚠ A sheet tem ${nonEmptyCells} glifos, mas a ordem só tem ${order.length} caracteres.</div>` : '';
+}
+
+/* ------------------------------------------------------------ composição */
+function params() {
+  return {
+    spacing: +$('#spacing').value || 0, kern: $('#kern').checked, gap: +$('#gap').value || 0,
+    maxTight: Math.abs(+$('#maxTight').value || 0), minKern: Math.max(1, +$('#minKern').value || 1), widen: $('#widen').checked,
+    space: +$('#space').value || 0, lineExtra: +$('#lineExtra').value || 0,
+    pad: clamp(+$('#pad').value || 0, 0, 16),
+  };
+}
+const nextPow2 = n => { let p = 1; while (p < n) p <<= 1; return p; };
+
+function packAtlas(gs, pad) {
+  if (!gs.length) return null;
+  const items = gs.slice().sort((a, b) => b.h - a.h || b.w - a.w), maxW = Math.max(...gs.map(g => g.w)) + pad;
+  let best = null;
+  for (let W = 128; W <= 4096; W <<= 1) {
+    if (W < maxW) continue;
+    let x = 0, y = 0, rowH = 0; const pos = new Map();
+    for (const g of items) {
+      if (x + g.w + pad > W) { x = 0; y += rowH + pad; rowH = 0; }
+      pos.set(g, { x: x + (pad >> 1), y: y + (pad >> 1) });
+      x += g.w + pad; rowH = Math.max(rowH, g.h);
+    }
+    const H = nextPow2(y + rowH + pad), area = W * H * Math.max(1, H / W);
+    if (!best || area < best.area) best = { W, H, pos, area };
+  }
+  return best;
+}
+
+function median(a) { const s = a.slice().sort((x, y) => x - y); return s.length ? s[s.length >> 1] : 0; }
+
+function compose() {
+  if (!S.glyphs.length) { S.font = null; refreshAll(); return; }
+  const P = params(), gs = S.glyphs.filter(g => g.ids.length);
+  if (!gs.length) { S.font = null; refreshAll(); return; }
+  // linha de base de cada linha da sheet: mediana do fundo das letras "retas" e ajuste linear entre as linhas
+  const flatCh = ch => FLAT_BASE.includes(ch.normalize('NFD')[0]), byRow = new Map();
+  for (const g of gs) if (flatCh(g.char)) { if (!byRow.has(g.row)) byRow.set(g.row, []); byRow.get(g.row).push(g.y1); }
+  const pts = [...byRow].map(([r, a]) => [r, median(a)]);
+  let slope = S.grid.py, icpt;
+  if (pts.length >= 2) {
+    const n = pts.length, mr = pts.reduce((a, p) => a + p[0], 0) / n, mb = pts.reduce((a, p) => a + p[1], 0) / n;
+    let num = 0, den = 0; for (const [r, b] of pts) { num += (r - mr) * (b - mb); den += (r - mr) ** 2; }
+    slope = num / den; icpt = mb - slope * mr;
+  } else icpt = median(gs.map(g => g.y1 - g.row * slope));
+  S.baselines = r => icpt + slope * r; S.rowSlope = slope;
+  for (const g of gs) { const bl = S.baselines(g.row); g.topRel = g.y0 - bl; g.botRel = g.y1 - bl; }
+  const minTop = Math.min(...gs.map(g => g.topRel + g.dy)), maxBot = Math.max(...gs.map(g => g.botRel + g.dy));
+  const lineHeight = Math.round(maxBot - minTop + P.lineExtra), base = Math.round(-minTop);
+  for (const g of gs) { g.ly = g.topRel + g.dy - minTop; g.adv = g.w + P.spacing + g.advExtra; }
+
+  // atlas
+  const pk = packAtlas(gs, P.pad);
+  const atlas = document.createElement('canvas'); atlas.width = pk.W; atlas.height = pk.H;
+  const actx = atlas.getContext('2d');
+  for (const g of gs) { const p = pk.pos.get(g); actx.putImageData(g.data, p.x, p.y); g.ax = p.x; g.ay = p.y; }
+
+  // chars
+  const chars = new Map();
+  for (const g of gs) for (const id of g.ids) {
+    chars.set(id, { id, g, x: g.ax, y: g.ay, w: g.w, h: g.h, xoff: 0, yoff: Math.round(g.ly), xadv: Math.round(g.adv) });
+  }
+  const medW = median(gs.filter(g => /[A-Z]/.test(g.char)).map(g => g.w)) || median(gs.map(g => g.w));
+  const spaceW = P.space || Math.round(medW * 0.4);
+  for (const id of [32, 160]) chars.set(id, { id, g: null, x: 0, y: 0, w: 0, h: 0, xoff: 0, yoff: 0, xadv: spaceW });
+
+  // kerning
+  const kernPairs = [], kern = new Map();
+  if (P.kern) {
+    for (const a of gs) for (const b of gs) {
+      const y0 = Math.max(a.ly, b.ly), y1 = Math.min(a.ly + a.h, b.ly + b.h);
+      let minGap = Infinity;
+      for (let y = Math.ceil(y0); y < y1; y++) {
+        const ia = Math.round(y - a.ly), ib = Math.round(y - b.ly);
+        if (ia < 0 || ib < 0 || ia >= a.h || ib >= b.h || a.R[ia] < 0 || b.L[ib] < 0) continue;
+        const gap = Math.round(a.adv) + b.L[ib] - a.R[ia];
+        if (gap < minGap) minGap = gap;
+      }
+      if (minGap === Infinity) continue;
+      let k = Math.round(P.gap - minGap);
+      if (!P.widen) k = Math.min(k, 0);
+      k = Math.max(k, -P.maxTight);
+      if (Math.abs(k) < P.minKern) continue;
+      for (const ia of a.ids) for (const ib of b.ids) { kernPairs.push([ia, ib, k]); kern.set(ia * 1114112 + ib, k); }
+    }
+  }
+  S.font = { atlas, chars, kern, kernPairs, lineHeight, base, spaceW, name: ($('#name').value || 'Fonte').replace(/[^\w\-]+/g, '_') };
+  refreshAll();
+}
+
+/* ----------------------------------------------------------- exportação */
+function buildFnt() {
+  const f = S.font, L = [];
+  L.push(`info face="${f.name}" size=${f.lineHeight} bold=0 italic=0 charset="" unicode=1 stretchH=100 smooth=1 aa=1 padding=0,0,0,0 spacing=0,0 outline=0`);
+  L.push(`common lineHeight=${f.lineHeight} base=${f.base} scaleW=${f.atlas.width} scaleH=${f.atlas.height} pages=1 packed=0`);
+  L.push(`page id=0 file="${f.name}.png"`);
+  const ids = [...f.chars.keys()].sort((a, b) => a - b);
+  L.push(`chars count=${ids.length}`);
+  for (const id of ids) {
+    const c = f.chars.get(id);
+    L.push(`char id=${id} x=${c.x} y=${c.y} width=${c.w} height=${c.h} xoffset=${c.xoff} yoffset=${c.yoff} xadvance=${c.xadv} page=0 chnl=15`);
+  }
+  if (f.kernPairs.length) {
+    L.push(`kernings count=${f.kernPairs.length}`);
+    for (const [a, b, k] of f.kernPairs) L.push(`kerning first=${a} second=${b} amount=${k}`);
+  }
+  return L.join('\n') + '\n';
+}
+const canvasBlob = cv => new Promise(res => cv.toBlob(res, 'image/png'));
+function download(blob, name) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = u8 => { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+function makeZip(files) { // sem compressão (store)
+  const enc = new TextEncoder(), parts = [], central = []; let off = 0;
+  const d = new Date(), time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1),
+        date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  for (const f of files) {
+    const nm = enc.encode(f.name), crc = crc32(f.data), sz = f.data.length;
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+    lh.setUint16(10, time, true); lh.setUint16(12, date, true); lh.setUint32(14, crc, true); lh.setUint32(18, sz, true);
+    lh.setUint32(22, sz, true); lh.setUint16(26, nm.length, true); lh.setUint16(28, 0, true);
+    parts.push(new Uint8Array(lh.buffer), nm, f.data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true);
+    ch.setUint16(10, 0, true); ch.setUint16(12, time, true); ch.setUint16(14, date, true); ch.setUint32(16, crc, true);
+    ch.setUint32(20, sz, true); ch.setUint32(24, sz, true); ch.setUint16(28, nm.length, true); ch.setUint32(42, off, true);
+    central.push(new Uint8Array(ch.buffer), nm);
+    off += 30 + nm.length + sz;
+  }
+  const csz = central.reduce((s, p) => s + p.length, 0), end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+  end.setUint32(12, csz, true); end.setUint32(16, off, true);
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: 'application/zip' });
+}
+async function exportAll(kind) {
+  if (!S.font) return;
+  const fnt = buildFnt(), png = await canvasBlob(S.font.atlas), nm = S.font.name;
+  if (kind === 'fnt') return download(new Blob([fnt], { type: 'text/plain' }), nm + '.fnt');
+  if (kind === 'png') return download(png, nm + '.png');
+  const pngBytes = new Uint8Array(await png.arrayBuffer());
+  download(makeZip([{ name: nm + '.fnt', data: new TextEncoder().encode(fnt) }, { name: nm + '.png', data: pngBytes }]), nm + '.zip');
+}
+
+/* ------------------------------------------------------------ renderização */
+function drawSheet() {
+  const cv = $('#sheetCanvas');
+  if (!S.img) { cv.hidden = true; $('#empty').hidden = false; return; }
+  $('#empty').hidden = true; cv.hidden = false;
+  const z = S.zoom;
+  cv.width = Math.round(S.W * z); cv.height = Math.round(S.H * z);
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#262b30'; ctx.fillRect(0, 0, cv.width, cv.height);
+  const tile = 16; ctx.fillStyle = '#2d3339';
+  for (let y = 0; y < cv.height; y += tile) for (let x = (y / tile) % 2 ? 0 : tile; x < cv.width; x += tile * 2) ctx.fillRect(x, y, tile, tile);
+  ctx.imageSmoothingQuality = 'high'; ctx.drawImage(S.img, 0, 0, cv.width, cv.height);
+  if ($('#showBoxes').checked) {
+    ctx.lineWidth = 1; ctx.font = `bold ${clamp(Math.round(14 * z + 6), 11, 22)}px Consolas, monospace`;
+    for (const g of S.glyphs) {
+      const sel = S.sel === g.idx, off = !g.ids.length;
+      ctx.strokeStyle = sel ? '#ffd23f' : off ? '#ff6b6b' : '#2fd05a';
+      ctx.lineWidth = sel ? 2 : 1;
+      ctx.strokeRect(g.x0 * z + .5, g.y0 * z + .5, g.w * z, g.h * z);
+      if ($('#showLabels').checked && g.char) {
+        ctx.fillStyle = sel ? '#ffd23f' : '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
+        ctx.strokeText(g.char, g.x0 * z + 3, g.y0 * z + 14); ctx.fillText(g.char, g.x0 * z + 3, g.y0 * z + 14);
+      }
+    }
+  }
+}
+
+function layoutText(text, useKern) {
+  const f = S.font, out = [], missing = new Set();
+  let x = 0, y = 0, maxX = 0, prev = null;
+  for (const ch of text) {
+    if (ch === '\n') { maxX = Math.max(maxX, x); x = 0; y += f.lineHeight; prev = null; continue; }
+    const cp = ch.codePointAt(0), c = f.chars.get(cp);
+    if (!c) { missing.add(ch); prev = null; continue; }
+    if (useKern && prev !== null) x += f.kern.get(prev * 1114112 + cp) || 0;
+    out.push({ c, x, y }); x += c.xadv; prev = cp;
+  }
+  return { out, w: Math.max(maxX, x), h: y + f.lineHeight, missing };
+}
+function drawPreview() {
+  const cv = $('#pvCanvas'), ctx = cv.getContext('2d');
+  if (!S.font) { cv.width = 10; cv.height = 10; $('#pvMissing').textContent = ''; return; }
+  const sc = +$('#pvScale').value, lay = layoutText($('#pvText').value, $('#pvKern').checked), pad = 12;
+  cv.width = Math.max(10, Math.ceil((lay.w + pad * 2) * sc)); cv.height = Math.max(10, Math.ceil((lay.h + pad * 2) * sc));
+  const bg = $('#pvBg').value;
+  cv.classList.toggle('checker', bg === 'checker');
+  ctx.fillStyle = bg === 'checker' ? '#262b30' : bg; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.imageSmoothingEnabled = sc < 1;
+  for (const { c, x, y } of lay.out) {
+    if (!c.w) continue;
+    const dx = (pad + x + c.xoff) * sc, dy = (pad + y + c.yoff) * sc;
+    ctx.drawImage(S.font.atlas, c.x, c.y, c.w, c.h, dx, dy, c.w * sc, c.h * sc);
+    if ($('#pvBoxes').checked) { ctx.strokeStyle = '#ff4d6d'; ctx.strokeRect(dx + .5, dy + .5, c.w * sc, c.h * sc); }
+  }
+  $('#pvMissing').textContent = lay.missing.size ? `Sem glifo para: ${[...lay.missing].join(' ')}` : '';
+}
+function drawAtlas() {
+  const cv = $('#atlasView'), f = S.font;
+  if (!f) { cv.width = cv.height = 1; $('#atlasInfo').textContent = ''; return; }
+  cv.width = f.atlas.width; cv.height = f.atlas.height; cv.getContext('2d').drawImage(f.atlas, 0, 0);
+  $('#atlasInfo').textContent = `${f.atlas.width}×${f.atlas.height}px — só contém os glifos recortados (pixels de vizinhos colados são removidos).`;
+}
+function drawMetrics() {
+  const f = S.font;
+  $('#metrics').textContent = f
+    ? `lineHeight=${f.lineHeight}  base=${f.base}  espaço=${f.spaceW}px  atlas=${f.atlas.width}×${f.atlas.height}\ncaracteres=${f.chars.size}  pares de kerning=${f.kernPairs.length}`
+    : '';
+}
+function refreshStatus() {
+  const f = S.font;
+  $('#status').textContent = S.img
+    ? `${S.W}×${S.H}px${S.bgKeyed ? ' (fundo removido)' : ''} · grade ${S.grid.px.toFixed(1)}×${S.grid.py.toFixed(1)} · ${S.glyphs.length} glifos${f ? ` · ${f.chars.size} caracteres · ${f.kernPairs.length} pares de kerning` : ''}`
+    : 'Nenhuma sheet carregada';
+  for (const id of ['#btnZip', '#btnFnt', '#btnPng']) $(id).disabled = !f;
+}
+function refreshAll() { drawSheet(); drawPreview(); drawAtlas(); drawMetrics(); refreshStatus(); refreshInspector(); }
+
+/* --------------------------------------------------------------- pipeline */
+function analyze(resetGrid) {
+  labelComponents();
+  if (resetGrid) setGrid(autoGrid());
+  rebuild();
+}
+function setGrid(g) {
+  S.grid = { ...g };
+  $('#px').value = +g.px.toFixed(2); $('#py').value = +g.py.toFixed(2);
+  $('#ox').value = +g.ox.toFixed(2); $('#oy').value = +g.oy.toFixed(2);
+}
+function rebuild() {
+  if (!S.img) return;
+  S.grid = { px: +$('#px').value, py: +$('#py').value, ox: +$('#ox').value, oy: +$('#oy').value };
+  buildGlyphs();
+  if ($('#preset').value !== 'custom' && !$('#order').value) applyPreset();
+  autoPickPreset();
+  assignChars(); compose();
+}
+// "Detecção prévia": escolhe o modelo cujo tamanho bate com a quantidade de células da sheet.
+function autoPickPreset() {
+  if (S.presetPicked) return;
+  const total = S.grid.cols * S.grid.rows, n = S.glyphs.length;
+  const hit = ['sheet90', 'az09', 'ascii'].find(k => PRESETS[k].chars.length === n || PRESETS[k].chars.length === total);
+  if (hit && $('#preset').value !== hit) { $('#preset').value = hit; applyPreset(); }
+  S.presetPicked = true;
+}
+function applyPreset() {
+  const k = $('#preset').value;
+  if (k !== 'custom') $('#order').value = PRESETS[k].chars;
+}
+function refreshInspector() {
+  const box = $('#inspector'), g = S.sel != null ? S.glyphs[S.sel] : null;
+  if (!g) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  $('#inspTitle').textContent = `Glifo linha ${g.row + 1} · coluna ${g.col + 1}`;
+  if (document.activeElement !== $('#inChar')) $('#inChar').value = g.char || '';
+  if (document.activeElement !== $('#inAdv')) $('#inAdv').value = g.advExtra;
+  if (document.activeElement !== $('#inDy')) $('#inDy').value = g.dy;
+  $('#inSkip').checked = g.skip;
+  $('#inInfo').textContent = `${g.w}×${g.h}px · ${g.pieces.length} peça(s)` + (g.char ? ` · U+${g.char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}` : '');
+}
+
+/* ----------------------------------------------------------------- eventos */
+(function init() {
+  const sel = $('#preset');
+  for (const [k, v] of Object.entries(PRESETS)) sel.add(new Option(v.name, k));
+  sel.value = 'sheet90'; applyPreset();
+
+  const drop = $('#drop'), file = $('#file');
+  drop.onclick = () => file.click();
+  file.onchange = () => file.files[0] && loadBlob(file.files[0], file.files[0].name);
+  ['dragenter', 'dragover'].forEach(e => document.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(e => document.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove('over'); }));
+  document.addEventListener('drop', ev => { const f = ev.dataTransfer.files[0]; if (f) loadBlob(f, f.name); });
+
+  const debounce = (fn, ms = 120) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+  const dCompose = debounce(compose), dRebuild = debounce(rebuild), dAnalyze = debounce(() => S.img && analyze(false));
+  $('#thr').oninput = dAnalyze;
+  ['#px', '#py', '#ox', '#oy'].forEach(id => $(id).oninput = dRebuild);
+  $('#btnRegrid').onclick = () => { if (!S.img) return; setGrid(autoGrid()); rebuild(); };
+  $('#preset').onchange = () => { applyPreset(); S.presetPicked = true; if (S.img) { assignChars(); compose(); } };
+  $('#order').oninput = () => { $('#preset').value = 'custom'; S.presetPicked = true; if (S.img) { assignChars(); dCompose(); } };
+  ['#lower', '#aliases', '#seq'].forEach(id => $(id).onchange = () => { if (S.img) { assignChars(); compose(); } });
+  ['#spacing', '#kern', '#gap', '#maxTight', '#minKern', '#widen', '#space', '#lineExtra', '#pad', '#name'].forEach(id => {
+    $(id).oninput = dCompose; $(id).onchange = dCompose;
+  });
+  $('#name').addEventListener('input', () => $('#name').dataset.touched = '1');
+
+  // abas
+  document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
+    document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane' + t.dataset.tab));
+    refreshAll();
+  });
+  // sheet
+  $('#zoom').oninput = () => { S.zoom = $('#zoom').value / 100; $('#zoomVal').textContent = $('#zoom').value + '%'; drawSheet(); };
+  S.zoom = $('#zoom').value / 100;
+  $('#showBoxes').onchange = $('#showLabels').onchange = drawSheet;
+  $('#sheetCanvas').onclick = ev => {
+    const r = ev.target.getBoundingClientRect(), x = (ev.clientX - r.left) / S.zoom, y = (ev.clientY - r.top) / S.zoom;
+    const hits = S.glyphs.filter(g => x >= g.x0 && x < g.x1 && y >= g.y0 && y < g.y1).sort((a, b) => a.w * a.h - b.w * b.h);
+    S.sel = hits.length ? hits[0].idx : null; drawSheet(); refreshInspector();
+  };
+  // inspetor
+  const setOver = patch => {
+    const g = S.glyphs[S.sel]; if (!g) return;
+    S.over[g.cell] = { ...(S.over[g.cell] || {}), ...patch };
+    assignChars(); compose();
+  };
+  $('#inChar').oninput = () => { const v = [...$('#inChar').value][0]; setOver({ char: v || undefined }); };
+  $('#inAdv').oninput = () => setOver({ adv: +$('#inAdv').value || 0 });
+  $('#inDy').oninput = () => setOver({ dy: +$('#inDy').value || 0 });
+  $('#inSkip').onchange = () => setOver({ skip: $('#inSkip').checked });
+  // prévia
+  ['#pvText', '#pvScale', '#pvKern', '#pvBoxes', '#pvBg'].forEach(id => { $(id).oninput = drawPreview; $(id).onchange = drawPreview; });
+  // exportação
+  $('#btnZip').onclick = () => exportAll('zip');
+  $('#btnFnt').onclick = () => exportAll('fnt');
+  $('#btnPng').onclick = () => exportAll('png');
+})();
+</script>
+</body>
+</html>
