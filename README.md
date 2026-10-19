@@ -21,15 +21,13 @@ O foco do programa é resolver dois problemas comuns de spritefonts:
 6. Em **Exportar** (seção 5), dê um nome à fonte e clique em **Baixar .zip**.
 7. Extraia o `.zip` dentro do projeto Godot 3.x, **com o `.fnt` e o `.png` na mesma pasta**, e use o `.fnt` como *Font* nos nós de texto (o Godot o carrega como `BitmapFont`).
 
-Uma sheet de exemplo está em `exemplos/sheet-exemplo.webp`.
-
 ---
 
 ## Requisitos da sprite sheet
 
 - Os glifos ficam dispostos em **grade** (linhas e colunas com passo regular), em **ordem de leitura** (esquerda para direita, de cima para baixo).
 - Fundo transparente é o ideal. Se a imagem tiver fundo sólido (os 4 cantos opacos e da mesma cor), o programa remove essa cor automaticamente.
-- Os glifos **podem ultrapassar o limite da célula** (G, Q e Ç com a parte de baixo, por exemplo) e podem estar **colados** ao vizinho (como Æ e É na sheet de exemplo): o programa separa os dois.
+- Os glifos **podem ultrapassar o limite da célula** (G, Q e Ç com a parte de baixo, por exemplo) e podem estar **colados** ao vizinho (como Æ e É em algumas sheets): o programa separa os dois.
 - O alinhamento vertical é calculado pela linha de base de cada linha da sheet, então a deriva de alguns pixels entre linhas não atrapalha.
 
 ---
@@ -180,5 +178,5 @@ kerning first=84 second=65 amount=-40
 
 - Não reconhece qual letra é qual a partir do desenho; a ordem vem do modelo/campo de texto e é conferida por você.
 - O alinhamento vertical parte do princípio de que as letras de uma mesma linha da sheet compartilham a linha de base. Sheets com glifos soltos em posições aleatórias não funcionam bem.
-- Com kerning ligado o `.fnt` fica grande (cerca de 780 KB na sheet de exemplo, com mais de 20 mil pares). Aumente "Ignorar kerning menor que" ou desligue o kerning para reduzir.
+- Com kerning ligado o `.fnt` fica grande (cerca de 780 KB numa sheet com 96 glifos, com mais de 20 mil pares). Aumente "Ignorar kerning menor que" ou desligue o kerning para reduzir.
 - Um glifo mais largo que cerca de 1,1× o passo da grade, com uma divisa de célula no meio, pode ser cortado indevidamente como se fossem dois glifos colados.
