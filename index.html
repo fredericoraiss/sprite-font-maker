@@ -107,6 +107,11 @@
 
   <h2>5 · Exportar</h2>
   <label class="row"><span class="l">Nome da fonte</span><input type="text" id="name" value="MinhaFonte" style="width:150px"></label>
+  <label class="row"><span class="l">A sheet carregada equivale a</span>
+    <select id="sheetScale"><option value="1">1×</option><option value="2">2×</option><option value="3">3×</option><option value="4">4×</option></select></label>
+  <label class="row"><span class="l">Exportar em</span>
+    <select id="outScale"><option value="1">1×</option><option value="2">2×</option><option value="3">3×</option><option value="4">4×</option></select></label>
+  <div id="scaleInfo" class="hint"></div>
   <label class="row"><span class="l">Margem entre glifos no atlas (px)</span><input type="number" id="pad" value="2" min="0" max="16"></label>
   <div class="btns">
     <button class="primary" id="btnZip" disabled>Baixar .zip (.fnt + .png)</button>
@@ -453,6 +458,7 @@ function params() {
     maxTight: Math.abs(+$('#maxTight').value || 0), minKern: Math.max(1, +$('#minKern').value || 1), widen: $('#widen').checked,
     space: +$('#space').value || 0, lineExtra: +$('#lineExtra').value || 0,
     pad: clamp(+$('#pad').value || 0, 0, 16),
+    sheetScale: +$('#sheetScale').value || 1, outScale: +$('#outScale').value || 1,
   };
 }
 const nextPow2 = n => { let p = 1; while (p < n) p <<= 1; return p; };
@@ -461,7 +467,7 @@ function packAtlas(gs, pad) {
   if (!gs.length) return null;
   const items = gs.slice().sort((a, b) => b.h - a.h || b.w - a.w), maxW = Math.max(...gs.map(g => g.w)) + pad;
   let best = null;
-  for (let W = 128; W <= 4096; W <<= 1) {
+  for (let W = 128; W <= 8192; W <<= 1) {
     if (W < maxW) continue;
     let x = 0, y = 0, rowH = 0; const pos = new Map();
     for (const g of items) {
@@ -475,12 +481,41 @@ function packAtlas(gs, pad) {
   return best;
 }
 
+// Versão do glifo em outra escala (ampliar/reduzir). Os valores em px da sheet são multiplicados por f.
+function scaledView(g, f) {
+  if (g._sv && g._sv.f === f && g._sv.data0 === g.data) return g._sv.v;
+  const w = Math.max(1, Math.round(g.w * f)), h = Math.max(1, Math.round(g.h * f));
+  const src = document.createElement('canvas'); src.width = g.w; src.height = g.h;
+  src.getContext('2d').putImageData(g.data, 0, 0);
+  let cur = src;
+  // reduções grandes são feitas em etapas de 1/2 para não perder detalhe fino
+  while (cur.width / 2 > w && cur.height / 2 > h) {
+    const nx = document.createElement('canvas'); nx.width = Math.ceil(cur.width / 2); nx.height = Math.ceil(cur.height / 2);
+    const c = nx.getContext('2d'); c.imageSmoothingQuality = 'high'; c.drawImage(cur, 0, 0, nx.width, nx.height); cur = nx;
+  }
+  const dst = document.createElement('canvas'); dst.width = w; dst.height = h;
+  const dctx = dst.getContext('2d', { willReadFrequently: true });
+  dctx.imageSmoothingQuality = 'high'; dctx.drawImage(cur, 0, 0, w, h);
+  const v = Object.create(g);
+  v.w = w; v.h = h; v.data = dctx.getImageData(0, 0, w, h);
+  v.L = new Int16Array(h).fill(-1); v.R = new Int16Array(h).fill(-1);
+  const d = v.data.data;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (d[(y * w + x) * 4 + 3] < 32) continue;
+    if (v.L[y] < 0) v.L[y] = x;
+    v.R[y] = x + 1;
+  }
+  g._sv = { f, data0: g.data, v };
+  return v;
+}
+
 function median(a) { const s = a.slice().sort((x, y) => x - y); return s.length ? s[s.length >> 1] : 0; }
 
 function compose() {
   if (!S.glyphs.length) { S.font = null; refreshAll(); return; }
-  const P = params(), gs = S.glyphs.filter(g => g.ids.length);
-  if (!gs.length) { S.font = null; refreshAll(); return; }
+  const P0 = params(), gs0 = S.glyphs.filter(g => g.ids.length);
+  if (!gs0.length) { S.font = null; refreshAll(); return; }
+  const gs = gs0, fct = P0.outScale / P0.sheetScale;
   // linha de base de cada linha da sheet: mediana do fundo das letras "retas" e ajuste linear entre as linhas
   const flatCh = ch => FLAT_BASE.includes(ch.normalize('NFD')[0]), byRow = new Map();
   for (const g of gs) if (flatCh(g.char)) { if (!byRow.has(g.row)) byRow.set(g.row, []); byRow.get(g.row).push(g.y1); }
@@ -493,29 +528,37 @@ function compose() {
   } else icpt = median(gs.map(g => g.y1 - g.row * slope));
   S.baselines = r => icpt + slope * r; S.rowSlope = slope;
   for (const g of gs) { const bl = S.baselines(g.row); g.topRel = g.y0 - bl; g.botRel = g.y1 - bl; }
-  const minTop = Math.min(...gs.map(g => g.topRel + g.dy)), maxBot = Math.max(...gs.map(g => g.botRel + g.dy));
+  // escala (ampliar/reduzir): tudo que está em px da sheet passa a valer em px da saída
+  const P = { ...P0, spacing: P0.spacing * fct, gap: P0.gap * fct, maxTight: P0.maxTight * fct, space: P0.space * fct,
+    lineExtra: P0.lineExtra * fct, minKern: Math.max(1, Math.round(P0.minKern * fct)) };
+  const gv = Math.abs(fct - 1) < 1e-6 ? gs : gs.map(g => {
+    const v = scaledView(g, fct);
+    v.topRel = g.topRel * fct; v.botRel = g.botRel * fct; v.dy = g.dy * fct; v.advExtra = g.advExtra * fct;
+    return v;
+  });
+  const minTop = Math.min(...gv.map(g => g.topRel + g.dy)), maxBot = Math.max(...gv.map(g => g.botRel + g.dy));
   const lineHeight = Math.round(maxBot - minTop + P.lineExtra), base = Math.round(-minTop);
-  for (const g of gs) { g.ly = g.topRel + g.dy - minTop; g.adv = g.w + P.spacing + g.advExtra; }
+  for (const g of gv) { g.ly = g.topRel + g.dy - minTop; g.adv = g.w + P.spacing + g.advExtra; }
 
   // atlas
-  const pk = packAtlas(gs, P.pad);
+  const pk = packAtlas(gv, P.pad);
   const atlas = document.createElement('canvas'); atlas.width = pk.W; atlas.height = pk.H;
   const actx = atlas.getContext('2d');
-  for (const g of gs) { const p = pk.pos.get(g); actx.putImageData(g.data, p.x, p.y); g.ax = p.x; g.ay = p.y; }
+  for (const g of gv) { const p = pk.pos.get(g); actx.putImageData(g.data, p.x, p.y); g.ax = p.x; g.ay = p.y; }
 
   // chars
   const chars = new Map();
-  for (const g of gs) for (const id of g.ids) {
+  for (const g of gv) for (const id of g.ids) {
     chars.set(id, { id, g, x: g.ax, y: g.ay, w: g.w, h: g.h, xoff: 0, yoff: Math.round(g.ly), xadv: Math.round(g.adv) });
   }
-  const medW = median(gs.filter(g => /[A-Z]/.test(g.char)).map(g => g.w)) || median(gs.map(g => g.w));
+  const medW = median(gv.filter(g => /[A-Z]/.test(g.char)).map(g => g.w)) || median(gv.map(g => g.w));
   const spaceW = P.space || Math.round(medW * 0.4);
   for (const id of [32, 160]) chars.set(id, { id, g: null, x: 0, y: 0, w: 0, h: 0, xoff: 0, yoff: 0, xadv: spaceW });
 
   // kerning
   const kernPairs = [], kern = new Map();
   if (P.kern) {
-    for (const a of gs) for (const b of gs) {
+    for (const a of gv) for (const b of gv) {
       const y0 = Math.max(a.ly, b.ly), y1 = Math.min(a.ly + a.h, b.ly + b.h);
       let minGap = Infinity;
       for (let y = Math.ceil(y0); y < y1; y++) {
@@ -532,7 +575,8 @@ function compose() {
       for (const ia of a.ids) for (const ib of b.ids) { kernPairs.push([ia, ib, k]); kern.set(ia * 1114112 + ib, k); }
     }
   }
-  S.font = { atlas, chars, kern, kernPairs, lineHeight, base, spaceW, name: ($('#name').value || 'Fonte').replace(/[^\w\-]+/g, '_') };
+  const suffix = P0.outScale > 1 ? `@${P0.outScale}x` : '';
+  S.font = { atlas, chars, kern, kernPairs, lineHeight, base, spaceW, factor: fct, name: ($('#name').value || 'Fonte').replace(/[^\w\-]+/g, '_') + suffix };
   refreshAll();
 }
 
@@ -661,6 +705,14 @@ function drawMetrics() {
     ? `lineHeight=${f.lineHeight}  base=${f.base}  espaço=${f.spaceW}px  atlas=${f.atlas.width}×${f.atlas.height}\ncaracteres=${f.chars.size}  pares de kerning=${f.kernPairs.length}`
     : '';
 }
+function refreshScaleInfo() {
+  const f = S.font, el = $('#scaleInfo');
+  if (!f) { el.textContent = 'Ex.: sheet em 4× exportando 1× reduz a 1/4; sheet em 1× exportando 4× amplia 4×.'; return; }
+  const k = f.factor, mode = Math.abs(k - 1) < 1e-6 ? 'tamanho original' : k < 1 ? `reduz para ${(k * 100).toFixed(k * 100 % 1 ? 1 : 0)}%` : `amplia ${k.toFixed(k % 1 ? 2 : 0)}×`;
+  const big = Math.max(f.atlas.width, f.atlas.height) > 4096;
+  el.innerHTML = `Fator aplicado: ×${+k.toFixed(3)} (${mode}) · atlas ${f.atlas.width}×${f.atlas.height} · linha ${f.lineHeight}px`
+    + (big ? '<div class="warn">⚠ Atlas maior que 4096px: pode não carregar em celulares/WebGL antigos. Considere uma escala menor.</div>' : '');
+}
 function refreshStatus() {
   const f = S.font;
   $('#status').textContent = S.img
@@ -668,7 +720,7 @@ function refreshStatus() {
     : 'Nenhuma sheet carregada';
   for (const id of ['#btnZip', '#btnFnt', '#btnPng']) $(id).disabled = !f;
 }
-function refreshAll() { drawSheet(); drawPreview(); drawAtlas(); drawMetrics(); refreshStatus(); refreshInspector(); }
+function refreshAll() { refreshScaleInfo(); drawSheet(); drawPreview(); drawAtlas(); drawMetrics(); refreshStatus(); refreshInspector(); }
 
 /* --------------------------------------------------------------- pipeline */
 function analyze(resetGrid) {
@@ -734,7 +786,7 @@ function refreshInspector() {
   $('#preset').onchange = () => { applyPreset(); S.presetPicked = true; if (S.img) { assignChars(); compose(); } };
   $('#order').oninput = () => { $('#preset').value = 'custom'; S.presetPicked = true; if (S.img) { assignChars(); dCompose(); } };
   ['#lower', '#aliases', '#seq'].forEach(id => $(id).onchange = () => { if (S.img) { assignChars(); compose(); } });
-  ['#spacing', '#kern', '#gap', '#maxTight', '#minKern', '#widen', '#space', '#lineExtra', '#pad', '#name'].forEach(id => {
+  ['#sheetScale', '#outScale', '#spacing', '#kern', '#gap', '#maxTight', '#minKern', '#widen', '#space', '#lineExtra', '#pad', '#name'].forEach(id => {
     $(id).oninput = dCompose; $(id).onchange = dCompose;
   });
   $('#name').addEventListener('input', () => $('#name').dataset.touched = '1');

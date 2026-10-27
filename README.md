@@ -101,11 +101,30 @@ WXYZ0123456
 | Controle | O que faz |
 |---|---|
 | **Nome da fonte** | Nome dos arquivos gerados (`Nome.fnt`, `Nome.png`). Caracteres especiais viram `_`. Se você não editar, usa o nome do arquivo da sheet. |
+| **A sheet carregada equivale a** | Diz a que escala a sua sheet corresponde: 1×, 2×, 3× ou 4×. Padrão: 1×. |
+| **Exportar em** | Escala da fonte gerada: 1×, 2×, 3× ou 4×. Padrão: 1×. |
 | **Margem entre glifos no atlas** | Espaço vazio entre glifos no PNG gerado. Evita que o filtro de textura do Godot "sangre" a cor de um glifo no vizinho. Padrão: 2. |
 | **Baixar .zip** | Baixa o `.fnt` e o `.png` juntos. |
 | **.fnt** / **.png** | Baixa cada arquivo separadamente. |
 
 Os botões só ficam ativos depois que uma sheet é carregada.
+
+#### Exportar em 2×, 3× e 4× (ampliar ou reduzir)
+
+O fator aplicado é **escala de saída ÷ escala da sheet**. Assim a mesma opção serve para sheets de tamanhos diferentes:
+
+| A sheet equivale a | Exportar em | Resultado |
+|---|---|---|
+| 4× | 1× | reduz para 25% (versão pequena a partir de uma sheet grande) |
+| 4× | 2× | reduz para 50% |
+| 2× | 3× | amplia 1,5× |
+| 1× | 2× / 3× / 4× | amplia 2×, 3× ou 4× |
+
+- Glifos, linha de base, entrelinha, avanços e kerning são recalculados na escala nova. Os valores da seção 4 (espaçamento, folga, aperto…) valem **na escala da sheet** e são escalados junto, então o visual se mantém.
+- Quando a escala de saída é maior que 1×, os arquivos saem com o sufixo `@2x`, `@3x` ou `@4x` (por exemplo `MinhaFonte@2x.fnt` e `MinhaFonte@2x.png`); o `.fnt` já aponta para o PNG com esse nome.
+- A prévia e a aba *Atlas gerado* mostram sempre a fonte na escala escolhida.
+- Reduzir mantém a qualidade. **Ampliar** deixa as bordas suavizadas (a imagem não ganha detalhe novo), e os atlas crescem rápido: 4× a partir de uma sheet de 140 px por glifo gera um atlas de 8192×4096. Acima de 4096 px o programa mostra um aviso, porque alguns celulares e navegadores não carregam texturas desse tamanho.
+- Para usar os dois tamanhos no jogo, exporte cada escala separadamente e escolha o `.fnt` conforme a resolução da tela.
 
 ---
 
@@ -178,5 +197,6 @@ kerning first=84 second=65 amount=-40
 
 - Não reconhece qual letra é qual a partir do desenho; a ordem vem do modelo/campo de texto e é conferida por você.
 - O alinhamento vertical parte do princípio de que as letras de uma mesma linha da sheet compartilham a linha de base. Sheets com glifos soltos em posições aleatórias não funcionam bem.
+- Escalas grandes geram atlas enormes e, ao ampliar, as bordas ficam suavizadas em vez de nítidas.
 - Com kerning ligado o `.fnt` fica grande (cerca de 780 KB numa sheet com 96 glifos, com mais de 20 mil pares). Aumente "Ignorar kerning menor que" ou desligue o kerning para reduzir.
 - Um glifo mais largo que cerca de 1,1× o passo da grade, com uma divisa de célula no meio, pode ser cortado indevidamente como se fossem dois glifos colados.
