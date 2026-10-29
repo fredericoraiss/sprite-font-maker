@@ -142,6 +142,9 @@ Mostra a sheet com uma caixa em cada glifo detectado.
   - **Avanço extra**: soma largura ao avanço desse glifo.
   - **Deslocar Y**: sobe ou desce o glifo (negativo = sobe).
   - **Excluir da fonte**: tira o glifo do resultado.
+  - **Caixa do glifo** (Esquerda, Direita, Topo, Base): aumenta (valor positivo) ou diminui (valor negativo) a caixa de recorte do glifo, em pixels da sheet. A caixa na tela acompanha na hora. Serve para recuperar um pedaço cortado (um acento, uma sombra), tirar sobra de um vizinho ou dar mais espaço ao redor da letra. **Redefinir caixa** volta ao recorte automático.
+    - Dentro da caixa automática só entram os pixels do próprio glifo; na parte aumentada para fora dela entra toda a tinta da sheet, inclusive a de glifos vizinhos.
+    - A largura da caixa conta no avanço da letra. Com o kerning ligado, margem vazia adicionada nas laterais é absorvida pelo encaixe; use *Avanço extra* ou o espaçamento para abrir distância.
 
 ### Prévia do texto
 

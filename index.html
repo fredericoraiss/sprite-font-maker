@@ -54,6 +54,10 @@
   #paneSheetBody { position: absolute; inset: 42px 0 0 0; overflow: auto; }
   #sheetCanvas { display: block; cursor: crosshair; }
   #inspector { position: absolute; right: 14px; top: 54px; width: 230px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: none; box-shadow: 0 6px 20px #0008; }
+  .boxHead { margin: 10px 0 4px; font-weight: 600; }
+  .boxGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; }
+  .boxGrid label { display: flex; flex-direction: column; gap: 2px; color: var(--muted); font-size: 12px; }
+  .boxGrid input { width: 100%; }
   #inspector h3 { margin: 0 0 6px; font-size: 13px; }
   #panePreview { padding: 0; }
   #pvText { width: calc(100% - 24px); margin: 10px 12px 0; height: 70px; font-family: inherit; letter-spacing: 0; font-size: 14px; }
@@ -133,7 +137,7 @@
       <label>Zoom <input type="range" id="zoom" min="20" max="300" value="50"> <span id="zoomVal">50%</span></label>
       <label><input type="checkbox" id="showBoxes" checked> mostrar caixas</label>
       <label><input type="checkbox" id="showLabels" checked> mostrar caracteres</label>
-      <span class="hint">Clique num glifo para ajustar caractere, avanço e posição vertical.</span>
+      <span class="hint">Clique num glifo para ajustar caractere, avanço, posição vertical e o tamanho da caixa.</span>
     </div>
     <div id="paneSheetBody"><div id="empty">Carregue uma sprite sheet para começar.</div><canvas id="sheetCanvas" hidden></canvas></div>
     <div id="inspector">
@@ -142,6 +146,14 @@
       <label class="row"><span class="l">Avanço extra (px)</span><input type="number" id="inAdv" value="0" step="1"></label>
       <label class="row"><span class="l">Deslocar Y (px)</span><input type="number" id="inDy" value="0" step="1"></label>
       <label class="row"><span class="l">Excluir da fonte</span><input type="checkbox" id="inSkip"></label>
+      <div class="boxHead">Caixa do glifo <span class="hint">(+ aumenta, − diminui, em px)</span></div>
+      <div class="boxGrid">
+        <label>Esquerda <input type="number" id="inBoxL" value="0" step="1"></label>
+        <label>Direita <input type="number" id="inBoxR" value="0" step="1"></label>
+        <label>Topo <input type="number" id="inBoxT" value="0" step="1"></label>
+        <label>Base <input type="number" id="inBoxB" value="0" step="1"></label>
+      </div>
+      <div class="btns"><button id="inBoxReset">Redefinir caixa</button></div>
       <div id="inInfo" class="hint"></div>
     </div>
   </div>
@@ -388,6 +400,7 @@ function buildGlyphs() {
       x0: Math.min(...ps.map(p => p.x0)), y0: Math.min(...ps.map(p => p.y0)),
       x1: Math.max(...ps.map(p => p.x1)), y1: Math.max(...ps.map(p => p.y1)) };
     g.w = g.x1 - g.x0; g.h = g.y1 - g.y0;
+    g.a = { x0: g.x0, y0: g.y0, x1: g.x1, y1: g.y1 };   // caixa automática (sem ajustes do usuário)
     ps.forEach(p => p.glyph = i);
     glyphs.push(g);
   });
@@ -401,26 +414,36 @@ function pieceOf(id, x, y) {
   for (const p of arr) if (x >= p.rx[0] && x < p.rx[1] && y >= p.ry[0] && y < p.ry[1]) return p;
   return null;
 }
-// Copia só os pixels que pertencem a cada glifo (evita arrastar vizinhos colados) e mede os perfis.
-function extractGlyphs() {
-  const { W, lab, rgba } = S;
-  for (const g of S.glyphs) {
-    const data = new ImageData(g.w, g.h), d = data.data;
-    for (let y = g.y0; y < g.y1; y++) for (let x = g.x0; x < g.x1; x++) {
+// Recorta o glifo. Dentro da caixa automática copia só os pixels do próprio glifo (evita arrastar
+// vizinhos colados); na parte que o usuário aumentou para fora dela, copia toda a tinta da sheet.
+function extractGlyph(g) {
+  const { W, H, lab, rgba } = S, a = g.a, bx = (S.over[g.cell] || {}).box;
+  let x0 = a.x0, y0 = a.y0, x1 = a.x1, y1 = a.y1;
+  if (bx) {
+    x0 = clamp(a.x0 - (bx.l | 0), 0, W - 1); y0 = clamp(a.y0 - (bx.t | 0), 0, H - 1);
+    x1 = clamp(a.x1 + (bx.r | 0), 1, W); y1 = clamp(a.y1 + (bx.b | 0), 1, H);
+    if (x1 <= x0) x1 = x0 + 1; if (y1 <= y0) y1 = y0 + 1;
+  }
+  g.x0 = x0; g.y0 = y0; g.x1 = x1; g.y1 = y1; g.w = x1 - x0; g.h = y1 - y0;
+  const data = new ImageData(g.w, g.h), d = data.data;
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+    const s = (y * W + x) * 4, t = ((y - y0) * g.w + (x - x0)) * 4;
+    const inside = x >= a.x0 && x < a.x1 && y >= a.y0 && y < a.y1;
+    if (inside) {
       const id = lab[y * W + x]; if (!id) continue;
       const p = pieceOf(id, x, y); if (!p || p.glyph !== g.idx) continue;
-      const s = (y * W + x) * 4, t = ((y - g.y0) * g.w + (x - g.x0)) * 4;
-      d[t] = rgba[s]; d[t + 1] = rgba[s + 1]; d[t + 2] = rgba[s + 2]; d[t + 3] = rgba[s + 3];
-    }
-    g.data = data;
-    g.L = new Int16Array(g.h).fill(-1); g.R = new Int16Array(g.h).fill(-1);
-    for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
-      if (d[(y * g.w + x) * 4 + 3] < 32) continue;
-      if (g.L[y] < 0) g.L[y] = x;
-      g.R[y] = x + 1;
-    }
+    } else if (!rgba[s + 3]) continue;
+    d[t] = rgba[s]; d[t + 1] = rgba[s + 1]; d[t + 2] = rgba[s + 2]; d[t + 3] = rgba[s + 3];
+  }
+  g.data = data;
+  g.L = new Int16Array(g.h).fill(-1); g.R = new Int16Array(g.h).fill(-1);
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
+    if (d[(y * g.w + x) * 4 + 3] < 32) continue;
+    if (g.L[y] < 0) g.L[y] = x;
+    g.R[y] = x + 1;
   }
 }
+function extractGlyphs() { for (const g of S.glyphs) extractGlyph(g); }
 
 /* ------------------------------------------------------ mapeamento de chars */
 const orderChars = () => [...$('#order').value.replace(/\s+/g, '')];
@@ -518,14 +541,14 @@ function compose() {
   const gs = gs0, fct = P0.outScale / P0.sheetScale;
   // linha de base de cada linha da sheet: mediana do fundo das letras "retas" e ajuste linear entre as linhas
   const flatCh = ch => FLAT_BASE.includes(ch.normalize('NFD')[0]), byRow = new Map();
-  for (const g of gs) if (flatCh(g.char)) { if (!byRow.has(g.row)) byRow.set(g.row, []); byRow.get(g.row).push(g.y1); }
+  for (const g of gs) if (flatCh(g.char)) { if (!byRow.has(g.row)) byRow.set(g.row, []); byRow.get(g.row).push(g.a.y1); }
   const pts = [...byRow].map(([r, a]) => [r, median(a)]);
   let slope = S.grid.py, icpt;
   if (pts.length >= 2) {
     const n = pts.length, mr = pts.reduce((a, p) => a + p[0], 0) / n, mb = pts.reduce((a, p) => a + p[1], 0) / n;
     let num = 0, den = 0; for (const [r, b] of pts) { num += (r - mr) * (b - mb); den += (r - mr) ** 2; }
     slope = num / den; icpt = mb - slope * mr;
-  } else icpt = median(gs.map(g => g.y1 - g.row * slope));
+  } else icpt = median(gs.map(g => g.a.y1 - g.row * slope));
   S.baselines = r => icpt + slope * r; S.rowSlope = slope;
   for (const g of gs) { const bl = S.baselines(g.row); g.topRel = g.y0 - bl; g.botRel = g.y1 - bl; }
   // escala (ampliar/reduzir): tudo que está em px da sheet passa a valer em px da saída
@@ -762,7 +785,10 @@ function refreshInspector() {
   if (document.activeElement !== $('#inAdv')) $('#inAdv').value = g.advExtra;
   if (document.activeElement !== $('#inDy')) $('#inDy').value = g.dy;
   $('#inSkip').checked = g.skip;
-  $('#inInfo').textContent = `${g.w}×${g.h}px · ${g.pieces.length} peça(s)` + (g.char ? ` · U+${g.char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}` : '');
+  const bx = (S.over[g.cell] || {}).box || {};
+  for (const [id, k] of [['#inBoxL', 'l'], ['#inBoxR', 'r'], ['#inBoxT', 't'], ['#inBoxB', 'b']])
+    if (document.activeElement !== $(id)) $(id).value = bx[k] || 0;
+  $('#inInfo').textContent = `Caixa ${g.w}×${g.h}px (automática ${g.a.x1 - g.a.x0}×${g.a.y1 - g.a.y0}) · ${g.pieces.length} peça(s)` + (g.char ? ` · U+${g.char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}` : '');
 }
 
 /* ----------------------------------------------------------------- eventos */
@@ -816,6 +842,15 @@ function refreshInspector() {
   $('#inAdv').oninput = () => setOver({ adv: +$('#inAdv').value || 0 });
   $('#inDy').oninput = () => setOver({ dy: +$('#inDy').value || 0 });
   $('#inSkip').onchange = () => setOver({ skip: $('#inSkip').checked });
+  const setBox = patch => {
+    const g = S.glyphs[S.sel]; if (!g) return;
+    const box = { l: +$('#inBoxL').value || 0, r: +$('#inBoxR').value || 0, t: +$('#inBoxT').value || 0, b: +$('#inBoxB').value || 0, ...patch };
+    box.l |= 0; box.r |= 0; box.t |= 0; box.b |= 0;
+    S.over[g.cell] = { ...(S.over[g.cell] || {}), box: (box.l || box.r || box.t || box.b) ? box : undefined };
+    extractGlyph(g); assignChars(); compose();
+  };
+  ['#inBoxL', '#inBoxR', '#inBoxT', '#inBoxB'].forEach(id => $(id).oninput = () => setBox({}));
+  $('#inBoxReset').onclick = () => { for (const id of ['#inBoxL', '#inBoxR', '#inBoxT', '#inBoxB']) $(id).value = 0; setBox({}); };
   // prévia
   ['#pvText', '#pvScale', '#pvKern', '#pvBoxes', '#pvBg'].forEach(id => { $(id).oninput = drawPreview; $(id).onchange = drawPreview; });
   // exportação
