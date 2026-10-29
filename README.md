@@ -40,6 +40,7 @@ O foco do programa é resolver dois problemas comuns de spritefonts:
 |---|---|
 | Área de arrastar | Carrega a imagem. Também funciona soltar o arquivo em qualquer lugar da página. |
 | **Limiar de alpha** | Pixels com transparência abaixo desse valor (0–255) são tratados como vazio. Aumente se houver "sujeira" fraca ao redor dos glifos; diminua se bordas suaves estiverem sendo cortadas. Padrão: 8. |
+| **Memória da última sheet** | A última sprite sheet carregada e todos os ajustes (grade, ordem, espaçamento, escalas, nome, caixas e ajustes por glifo, texto da prévia) ficam salvos **no navegador** (IndexedDB) e são restaurados sozinhos ao abrir o app. O botão **Esquecer a última sheet** apaga essa memória. |
 
 ### 2 · Grade da sheet
 
@@ -90,6 +91,7 @@ WXYZ0123456
 | **Espaçamento entre letras** | Valor somado ao avanço de todos os glifos. 0 = glifos encostados caixa com caixa. Aceita negativo para sobrepor. |
 | **Kerning automático** | Para cada par de letras, mede a distância real entre os contornos (linha por linha) e aproxima os dois até a folga desejada. É o que faz, por exemplo, o `A` entrar embaixo do `T`. Os pares vão para o `.fnt` como linhas `kerning`. |
 | **Folga mínima entre letras** | Distância que deve sobrar entre os pixels de duas letras vizinhas depois do kerning. Padrão: 1. Valores menores aproximam mais. |
+| **Folga extra da pontuação** (`. , ; : ! ?`) | Distância adicional, em px, nos dois lados desses caracteres. Evita o ponto e a vírgula colados nos números (como em `7,14`). Pares com folga extra **não deixam o vizinho entrar por baixo ou por cima** do glifo: a distância é medida pela caixa inteira da tinta. Padrão: 2. Use 0 para voltar ao encaixe normal. |
 | **Aperto máximo por par** | Limite de quanto um par pode ser aproximado, em pixels. Evita que letras fiquem sobrepostas demais. Padrão: 40. |
 | **Ignorar kerning menor que** | Pares com ajuste menor que esse valor não são gravados. Diminui bastante o tamanho do `.fnt`. Padrão: 2. |
 | **Permitir afastar pares sobrepostos** | Se ligado, o kerning também afasta pares que já estão mais apertados que a folga mínima. Desligado, o kerning só aproxima. |
@@ -141,6 +143,7 @@ Mostra a sheet com uma caixa em cada glifo detectado.
   - **Caractere**: troca o caractere só desse glifo.
   - **Avanço extra**: soma largura ao avanço desse glifo.
   - **Deslocar Y**: sobe ou desce o glifo (negativo = sobe).
+  - **Folga extra**: distância adicional nos dois lados desse caractere, só para esse glifo. Vazio = automático (usa a folga da pontuação para `. , ; : ! ?` e 0 para os demais); o placeholder mostra o valor automático. Vale com o kerning ligado. Qualquer valor maior que 0 também impede o encaixe por baixo/por cima do glifo.
   - **Excluir da fonte**: tira o glifo do resultado.
   - **Caixa do glifo** (Esquerda, Direita, Topo, Base): aumenta (valor positivo) ou diminui (valor negativo) a caixa de recorte do glifo, em pixels da sheet. A caixa na tela acompanha na hora. Serve para recuperar um pedaço cortado (um acento, uma sombra), tirar sobra de um vizinho ou dar mais espaço ao redor da letra. **Redefinir caixa** volta ao recorte automático.
     - Dentro da caixa automática só entram os pixels do próprio glifo; na parte aumentada para fora dela entra toda a tinta da sheet, inclusive a de glifos vizinhos.
@@ -198,6 +201,7 @@ kerning first=84 second=65 amount=-40
 
 ## Limitações
 
+- A memória fica no navegador e no endereço em que você abriu o app: abrir o `index.html` do disco, a página hospedada ou outro navegador mantém memórias separadas. Limpar os dados do site também apaga a memória.
 - Não reconhece qual letra é qual a partir do desenho; a ordem vem do modelo/campo de texto e é conferida por você.
 - O alinhamento vertical parte do princípio de que as letras de uma mesma linha da sheet compartilham a linha de base. Sheets com glifos soltos em posições aleatórias não funcionam bem.
 - Escalas grandes geram atlas enormes e, ao ampliar, as bordas ficam suavizadas em vez de nítidas.

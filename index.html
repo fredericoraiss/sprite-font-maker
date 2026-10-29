@@ -81,6 +81,8 @@
   <h2>1 · Sheet</h2>
   <div id="drop">Arraste a sprite sheet aqui<br>ou clique para escolher (PNG / WebP)</div>
   <input type="file" id="file" accept="image/*" hidden>
+  <div id="lastInfo" class="hint"></div>
+  <div class="btns" style="margin-top:2px"><button id="btnForget" hidden>Esquecer a última sheet</button></div>
   <label class="row"><span class="l">Limiar de alpha (ignora pixels mais fracos)</span><input type="number" id="thr" min="1" max="250" value="8"></label>
 
   <h2>2 · Grade da sheet</h2>
@@ -103,6 +105,7 @@
   <label class="row"><span class="l">Espaçamento entre letras (px)</span><input type="number" id="spacing" value="0" step="1"></label>
   <label class="row"><span class="l">Kerning automático (encaixa os pares)</span><input type="checkbox" id="kern" checked></label>
   <label class="row"><span class="l">Folga mínima entre letras (px)</span><input type="number" id="gap" value="1" step="1"></label>
+  <label class="row"><span class="l">Folga extra da pontuação (. , ; : ! ?)</span><input type="number" id="punctGap" value="2" step="1"></label>
   <label class="row"><span class="l">Aperto máximo por par (px)</span><input type="number" id="maxTight" value="40" min="0"></label>
   <label class="row"><span class="l">Ignorar kerning menor que (px)</span><input type="number" id="minKern" value="2" min="1"></label>
   <label class="row"><span class="l">Permitir afastar pares sobrepostos</span><input type="checkbox" id="widen"></label>
@@ -145,6 +148,7 @@
       <label class="row"><span class="l">Caractere</span><input type="text" id="inChar" maxlength="2" style="width:50px;text-align:center"></label>
       <label class="row"><span class="l">Avanço extra (px)</span><input type="number" id="inAdv" value="0" step="1"></label>
       <label class="row"><span class="l">Deslocar Y (px)</span><input type="number" id="inDy" value="0" step="1"></label>
+      <label class="row"><span class="l" title="Distância extra nos dois lados deste caractere (vale com kerning ligado). Vazio = automático.">Folga extra (px)</span><input type="number" id="inGap" step="1" placeholder="auto"></label>
       <label class="row"><span class="l">Excluir da fonte</span><input type="checkbox" id="inSkip"></label>
       <div class="boxHead">Caixa do glifo <span class="hint">(+ aumenta, − diminui, em px)</span></div>
       <div class="boxGrid">
@@ -194,6 +198,7 @@ const PRESETS = {
   custom: { name: 'Personalizado', chars: '' },
 };
 const ALIASES = { "'": ['’', '‘'], '"': ['“', '”'], '-': ['–', '—'] };
+const PUNCT = '.,;:!?';
 const FLAT_BASE = 'ABDEHIKLMNPRTUVWXZ0123456789';
 
 /* -------------------------------------------------------------------- state */
@@ -203,7 +208,7 @@ const S = {
 };
 
 /* --------------------------------------------------------------- load image */
-async function loadBlob(blob, name) {
+async function loadBlob(blob, name, restore) {
   const bmp = await createImageBitmap(blob);
   const cv = document.createElement('canvas');
   cv.width = bmp.width; cv.height = bmp.height;
@@ -214,13 +219,15 @@ async function loadBlob(blob, name) {
   S.bgKeyed = keyOpaqueBackground(S.rgba, S.W, S.H);
   S.alpha = new Uint8Array(S.W * S.H);
   for (let i = 0; i < S.alpha.length; i++) S.alpha[i] = S.rgba[i * 4 + 3];
-  S.presetPicked = false; S.over = {}; S.sel = null; $('#inspector').style.display = 'none';
+  S.presetPicked = !!restore; S.over = (restore && restore.over) || {}; S.sel = null; $('#inspector').style.display = 'none';
   const nm = $('#name');
   if (nm.dataset.touched !== '1') nm.value = S.name.replace(/[^\w\-]+/g, '_') || 'MinhaFonte';
   // renderiza a sheet "limpa" (com o fundo removido, se for o caso) para exibir
   S.img = document.createElement('canvas'); S.img.width = S.W; S.img.height = S.H;
   S.img.getContext('2d').putImageData(data, 0, 0);
-  analyze(true);
+  if (restore && restore.grid) { labelComponents(); setGrid(restore.grid); rebuild(); }
+  else analyze(true);
+  if (!restore) { S.forgot = false; rememberSheet(blob, name); }
 }
 
 // Se a imagem não tem transparência (4 cantos opacos e iguais), remove a cor de fundo.
@@ -454,6 +461,8 @@ function assignChars() {
     const pos = seqMode ? i : g.cell, ov = S.over[g.cell] || {};
     g.char = ov.char || order[pos] || null;
     g.advExtra = ov.adv || 0; g.dy = ov.dy || 0; g.skip = !!ov.skip;
+    g.autoGap = g.char && PUNCT.includes(g.char) ? (+$('#punctGap').value || 0) : 0;
+    g.gapExtra = ov.gap !== undefined ? ov.gap : g.autoGap;
   });
   const used = new Set();
   const explicit = new Set(S.glyphs.filter(g => g.char && !g.skip).map(g => g.char));
@@ -581,18 +590,29 @@ function compose() {
   // kerning
   const kernPairs = [], kern = new Map();
   if (P.kern) {
+    for (const g of gv) {   // extremos da tinta do glifo (para pares sem encaixe por baixo)
+      let mn = Infinity, mx = -Infinity;
+      for (let y = 0; y < g.h; y++) if (g.L[y] >= 0) { mn = Math.min(mn, g.L[y]); mx = Math.max(mx, g.R[y]); }
+      g.minL = mn === Infinity ? 0 : mn; g.maxR = mx === -Infinity ? g.w : mx;
+    }
     for (const a of gv) for (const b of gv) {
-      const y0 = Math.max(a.ly, b.ly), y1 = Math.min(a.ly + a.h, b.ly + b.h);
+      const ext = (a.gapExtra + b.gapExtra) * fct;   // folga extra por glifo (ex.: pontuação)
       let minGap = Infinity;
-      for (let y = Math.ceil(y0); y < y1; y++) {
-        const ia = Math.round(y - a.ly), ib = Math.round(y - b.ly);
-        if (ia < 0 || ib < 0 || ia >= a.h || ib >= b.h || a.R[ia] < 0 || b.L[ib] < 0) continue;
-        const gap = Math.round(a.adv) + b.L[ib] - a.R[ia];
-        if (gap < minGap) minGap = gap;
+      if (ext > 0) {
+        // glifo com folga extra: usa a caixa da tinta inteira, sem deixar o vizinho entrar por baixo/por cima dele
+        minGap = Math.round(a.adv) + b.minL - a.maxR;
+      } else {
+        const y0 = Math.max(a.ly, b.ly), y1 = Math.min(a.ly + a.h, b.ly + b.h);
+        for (let y = Math.ceil(y0); y < y1; y++) {
+          const ia = Math.round(y - a.ly), ib = Math.round(y - b.ly);
+          if (ia < 0 || ib < 0 || ia >= a.h || ib >= b.h || a.R[ia] < 0 || b.L[ib] < 0) continue;
+          const gap = Math.round(a.adv) + b.L[ib] - a.R[ia];
+          if (gap < minGap) minGap = gap;
+        }
       }
       if (minGap === Infinity) continue;
-      let k = Math.round(P.gap - minGap);
-      if (!P.widen) k = Math.min(k, 0);
+      let k = Math.round(P.gap + ext - minGap);
+      if (!P.widen && ext <= 0) k = Math.min(k, 0);
       k = Math.max(k, -P.maxTight);
       if (Math.abs(k) < P.minKern) continue;
       for (const ia of a.ids) for (const ib of b.ids) { kernPairs.push([ia, ib, k]); kern.set(ia * 1114112 + ib, k); }
@@ -601,6 +621,7 @@ function compose() {
   const suffix = P0.outScale > 1 ? `@${P0.outScale}x` : '';
   S.font = { atlas, chars, kern, kernPairs, lineHeight, base, spaceW, factor: fct, name: ($('#name').value || 'Fonte').replace(/[^\w\-]+/g, '_') + suffix };
   refreshAll();
+  persistSoon();
 }
 
 /* ----------------------------------------------------------- exportação */
@@ -784,11 +805,74 @@ function refreshInspector() {
   if (document.activeElement !== $('#inChar')) $('#inChar').value = g.char || '';
   if (document.activeElement !== $('#inAdv')) $('#inAdv').value = g.advExtra;
   if (document.activeElement !== $('#inDy')) $('#inDy').value = g.dy;
+  if (document.activeElement !== $('#inGap')) {
+    const ov = (S.over[g.cell] || {}).gap;
+    $('#inGap').value = ov === undefined ? '' : ov; $('#inGap').placeholder = `auto (${g.autoGap})`;
+  }
   $('#inSkip').checked = g.skip;
   const bx = (S.over[g.cell] || {}).box || {};
   for (const [id, k] of [['#inBoxL', 'l'], ['#inBoxR', 'r'], ['#inBoxT', 't'], ['#inBoxB', 'b']])
     if (document.activeElement !== $(id)) $(id).value = bx[k] || 0;
   $('#inInfo').textContent = `Caixa ${g.w}×${g.h}px (automática ${g.a.x1 - g.a.x0}×${g.a.y1 - g.a.y0}) · ${g.pieces.length} peça(s)` + (g.char ? ` · U+${g.char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}` : '');
+}
+
+/* ----------------------------------------------- memória da última sprite font */
+// Guarda a última sheet (arquivo) e todos os ajustes no IndexedDB do navegador e restaura ao abrir.
+const PERSIST_IDS = ['#thr', '#preset', '#order', '#lower', '#aliases', '#seq', '#spacing', '#kern', '#gap', '#minKern',
+  '#maxTight', '#widen', '#punctGap', '#space', '#lineExtra', '#name', '#pad', '#sheetScale', '#outScale', '#pvText', '#pvScale', '#pvKern', '#pvBg'];
+const DB = {
+  open() {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('sprite-font-maker', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('kv');
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    });
+  },
+  async tx(mode, fn) {
+    const db = await this.open();
+    return new Promise((res, rej) => {
+      const t = db.transaction('kv', mode), req = fn(t.objectStore('kv'));
+      t.oncomplete = () => { db.close(); res(req && req.result); }; t.onerror = t.onabort = () => { db.close(); rej(t.error); };
+    });
+  },
+  get(k) { return this.tx('readonly', st => st.get(k)); },
+  set(k, v) { return this.tx('readwrite', st => st.put(v, k)); },
+  del(k) { return this.tx('readwrite', st => st.delete(k)); },
+};
+function snapshotState() {
+  const vals = {};
+  for (const id of PERSIST_IDS) { const el = $(id); if (el) vals[id] = el.type === 'checkbox' ? el.checked : el.value; }
+  return { vals, grid: { px: +$('#px').value, py: +$('#py').value, ox: +$('#ox').value, oy: +$('#oy').value }, over: S.over };
+}
+let saveTimer;
+function persistSoon() {
+  if (!S.img || S.forgot) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => DB.set('state', snapshotState()).catch(() => {}), 500);
+}
+async function rememberSheet(blob, name) {
+  try {
+    await DB.set('sheet', { blob, name });
+    $('#btnForget').hidden = false;
+    $('#lastInfo').textContent = 'Sheet e ajustes salvos neste navegador; serão restaurados na próxima vez.';
+    persistSoon();
+  } catch (e) { $('#lastInfo').textContent = 'Não foi possível salvar neste navegador (armazenamento indisponível).'; }
+}
+async function restoreLast() {
+  try {
+    const [sheet, state] = await Promise.all([DB.get('sheet'), DB.get('state')]);
+    if (!sheet || !sheet.blob) return;
+    if (state && state.vals) {
+      for (const [id, v] of Object.entries(state.vals)) {
+        const el = $(id); if (!el) continue;
+        if (el.type === 'checkbox') el.checked = !!v; else el.value = v;
+      }
+      $('#name').dataset.touched = '1';
+    }
+    await loadBlob(sheet.blob, sheet.name, { grid: state && state.grid, over: state && state.over });
+    $('#btnForget').hidden = false;
+    $('#lastInfo').textContent = `Restaurada automaticamente: ${sheet.name} (salva neste navegador).`;
+  } catch (e) { /* sem armazenamento: segue sem restaurar */ }
 }
 
 /* ----------------------------------------------------------------- eventos */
@@ -841,6 +925,8 @@ function refreshInspector() {
   $('#inChar').oninput = () => { const v = [...$('#inChar').value][0]; setOver({ char: v || undefined }); };
   $('#inAdv').oninput = () => setOver({ adv: +$('#inAdv').value || 0 });
   $('#inDy').oninput = () => setOver({ dy: +$('#inDy').value || 0 });
+  $('#inGap').oninput = () => { const v = $('#inGap').value.trim(); setOver({ gap: v === '' ? undefined : (+v || 0) }); };
+  $('#punctGap').oninput = () => { if (S.img) { assignChars(); compose(); } };
   $('#inSkip').onchange = () => setOver({ skip: $('#inSkip').checked });
   const setBox = patch => {
     const g = S.glyphs[S.sel]; if (!g) return;
@@ -857,6 +943,13 @@ function refreshInspector() {
   $('#btnZip').onclick = () => exportAll('zip');
   $('#btnFnt').onclick = () => exportAll('fnt');
   $('#btnPng').onclick = () => exportAll('png');
+  $('#btnForget').onclick = async () => {
+    clearTimeout(saveTimer);
+    try { await DB.del('sheet'); await DB.del('state'); } catch (e) {}
+    $('#btnForget').hidden = true; $('#lastInfo').textContent = 'Memória limpa. A sheet atual continua aberta, mas não será restaurada.';
+    S.forgot = true;
+  };
+  restoreLast();
 })();
 </script>
 </body>
